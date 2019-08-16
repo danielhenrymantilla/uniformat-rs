@@ -1,4 +1,6 @@
 #![feature(core_intrinsics, specialization)]
+#![allow(unused)]
+#![deny(unused_must_use)]
 // #![recursion_limit = "256"]
 
 #[macro_use]
@@ -19,12 +21,17 @@ use ::quote::{
     quote,
     ToTokens,
 };
-use syn::{*,
+use ::syn::{*,
     parse::Parse,
 };
 
+use ::std::{};
+
+pub use self::context::Context;
+mod context;
+
 trait PrettyPrint {
-    fn pp (self: &'_ Self)
+    fn pp (self: &'_ Self, cx: &'_ Context)
         -> String
     ;
 }
@@ -58,7 +65,8 @@ fn main ()
             parse2(token_stream)
                 .map_err(|err| format_f!("Invalid source file: {err}"))?
         ;
-        println_f!("{source_file:?}\n\n{}", source_file.pp());
+        let ref cx = Context::new();
+        println_f!("{source_file:?}\n\n{}", source_file.pp(cx));
     })}
 
     if let Err(msg) = main() {
@@ -69,18 +77,18 @@ fn main ()
 
 impl<T : fmt::Debug> PrettyPrint for T {
     default
-    fn pp (self: &'_ Self)
+    fn pp (self: &'_ Self, cx: &'_ Context)
         -> String
     {
         let typename: &str = unsafe {
             ::std::intrinsics::type_name::<T>()
         };
-        f!("<TODO: {typename}.pp()>", )
+        f!("<TODO: {typename}.pp(cx)>", )
     }
 }
 
 impl PrettyPrint for File {
-    fn pp (self: &'_ Self)
+    fn pp (self: &'_ Self, cx: &'_ Context)
         -> String
     {
         let &Self {
@@ -97,7 +105,7 @@ impl PrettyPrint for File {
                     Some(
                         attrs
                             .iter()
-                            .map(PrettyPrint::pp)
+                            .map(|x| x.pp(cx))
                             .join("\n\n")
                     )
                 } else {
@@ -109,7 +117,7 @@ impl PrettyPrint for File {
                     Some(
                         items
                             .iter()
-                            .map(PrettyPrint::pp)
+                            .map(|x| x.pp(cx))
                             .join("\n\n")
                     )
                 } else {
@@ -121,7 +129,8 @@ impl PrettyPrint for File {
 }
 
 impl PrettyPrint for Attribute {
-    fn pp (self: &'_ Self) -> String
+    fn pp (self: &'_ Self, cx: &'_ Context)
+        -> String
     {
         let &Self {
             pound_token: _,
@@ -131,18 +140,17 @@ impl PrettyPrint for Attribute {
             ref tokens,
         } = self;
         format!(
-            "#{pound}[{inner}]",
-
+            "{indent}#{pound}[{inner}]",
+            indent = cx.indent(),
             pound = if let &AttrStyle::Inner(_) = style {
                 "!"
             } else {
                 ""
             },
-
             inner = if let Ok(meta) = self.parse_meta() {
-                meta.pp()
+                meta.pp(cx)
             } else {
-                let path = path.pp();
+                let path = path.pp(cx);
                 f!("{path} {tokens}")
             },
         )
@@ -150,7 +158,8 @@ impl PrettyPrint for Attribute {
 }
 
 impl PrettyPrint for Path {
-    fn pp (self: &'_ Self) -> String
+    fn pp (self: &'_ Self, cx: &'_ Context)
+        -> String
     {
         f!(
             "{leading_colon}{segments}",
@@ -162,7 +171,7 @@ impl PrettyPrint for Path {
                         format!(
                             "{ident}{arguments}",
                             ident = segment.ident,
-                            arguments = segment.arguments.pp(),
+                            arguments = segment.arguments.pp(cx),
                         )
                     })
                     .format("::")
@@ -172,7 +181,8 @@ impl PrettyPrint for Path {
 }
 
 impl PrettyPrint for PathArguments {
-    fn pp (self: &'_ Self) -> String
+    fn pp (self: &'_ Self, cx: &'_ Context)
+        -> String
     {
         use PathArguments::*;
         match self {
@@ -180,7 +190,7 @@ impl PrettyPrint for PathArguments {
             | &AngleBracketed(ref angle_bracketed) => {
                 unimplemented!("TODO: AngleBracketed")
             },
-            | &Parenthesized(ParenthesizedGenericArguments{
+            | &Parenthesized(ParenthesizedGenericArguments {
                 paren_token: _,
                 ref inputs,
                 ref output,
@@ -188,12 +198,12 @@ impl PrettyPrint for PathArguments {
                 format!("({args}){ret_ty}",
                     ret_ty = match output {
                         | &ReturnType::Default => "".into(),
-                        | &ReturnType::Type(_, ref ty) => ty.pp(),
+                        | &ReturnType::Type(_, ref ty) => ty.pp(cx),
                     },
                     args =
                         inputs
                             .iter()
-                            .map(PrettyPrint::pp)
+                            .map(|x| x.pp(cx))
                             .format(", ")
                     ,
                 )
@@ -203,23 +213,24 @@ impl PrettyPrint for PathArguments {
 }
 
 impl PrettyPrint for Meta {
-    fn pp (self: &'_ Self) -> String
+    fn pp (self: &'_ Self, cx: &'_ Context)
+        -> String
     {
         match self {
-            | &Meta::Path(ref path) => path.pp(),
+            | &Meta::Path(ref path) => path.pp(cx),
             | &Meta::NameValue(ref name_value) => {
-                let path = name_value.path.pp();
-                let lit = name_value.lit.pp();
+                let path = name_value.path.pp(cx);
+                let lit = name_value.lit.pp(cx);
                 f!("{path} = {lit}")
             },
             | &Meta::List(ref list) => {
-                let path = list.path.pp();
+                let path = list.path.pp(cx);
                 f!("{path}({nested})", nested = {
                     list.nested
                         .iter()
                         .map(|nested_meta| match nested_meta {
-                            | &NestedMeta::Meta(ref meta) => meta.pp(),
-                            | &NestedMeta::Lit(ref lit) => lit.pp(),
+                            | &NestedMeta::Meta(ref meta) => meta.pp(cx),
+                            | &NestedMeta::Lit(ref lit) => lit.pp(cx),
                         })
                         .format(", ")
                 })
@@ -229,40 +240,46 @@ impl PrettyPrint for Meta {
 }
 
 impl PrettyPrint for Lit {
-    fn pp (self: &'_ Self) -> String
+    fn pp (self: &'_ Self, cx: &'_ Context)
+        -> String
     {
         self.clone().into_token_stream().to_string()
     }
 }
 
 impl PrettyPrint for Item {
-    fn pp (self: &'_ Self) -> String
+    fn pp (self: &'_ Self, cx: &'_ Context)
+        -> String
     {
         match self {
-            | &Item::Const(ref itemconst) => itemconst.pp(),
-            | &Item::Enum(ref itemenum) => itemenum.pp(),
-            | &Item::ExternCrate(ref itemexterncrate) => itemexterncrate.pp(),
-            | &Item::Fn(ref itemfn) => itemfn.pp(),
-            | &Item::ForeignMod(ref itemforeignmod) => itemforeignmod.pp(),
-            | &Item::Impl(ref itemimpl) => itemimpl.pp(),
-            | &Item::Macro(ref itemmacro) => itemmacro.pp(),
-            | &Item::Macro2(ref itemmacro2) => itemmacro2.pp(),
-            | &Item::Mod(ref itemmod) => itemmod.pp(),
-            | &Item::Static(ref itemstatic) => itemstatic.pp(),
-            | &Item::Struct(ref itemstruct) => itemstruct.pp(),
-            | &Item::Trait(ref itemtrait) => itemtrait.pp(),
-            | &Item::TraitAlias(ref itemtraitalias) => itemtraitalias.pp(),
-            | &Item::Type(ref itemtype) => itemtype.pp(),
-            | &Item::Union(ref itemunion) => itemunion.pp(),
-            | &Item::Use(ref itemuse) => itemuse.pp(),
-            | &Item::Verbatim(ref tokenstream) => tokenstream.pp(),
-            | _ => format!("{:?}", self),
+            | &Item::Const(ref itemconst) => itemconst.pp(cx),
+            | &Item::Enum(ref itemenum) => itemenum.pp(cx),
+            | &Item::ExternCrate(ref itemexterncrate) => itemexterncrate.pp(cx),
+            | &Item::Fn(ref itemfn) => itemfn.pp(cx),
+            | &Item::ForeignMod(ref itemforeignmod) => itemforeignmod.pp(cx),
+            | &Item::Impl(ref itemimpl) => itemimpl.pp(cx),
+            | &Item::Macro(ref itemmacro) => itemmacro.pp(cx),
+            | &Item::Macro2(ref itemmacro2) => itemmacro2.pp(cx),
+            | &Item::Mod(ref itemmod) => itemmod.pp(cx),
+            | &Item::Static(ref itemstatic) => itemstatic.pp(cx),
+            | &Item::Struct(ref itemstruct) => itemstruct.pp(cx),
+            | &Item::Trait(ref itemtrait) => itemtrait.pp(cx),
+            | &Item::TraitAlias(ref itemtraitalias) => itemtraitalias.pp(cx),
+            | &Item::Type(ref itemtype) => itemtype.pp(cx),
+            | &Item::Union(ref itemunion) => itemunion.pp(cx),
+            | &Item::Use(ref itemuse) => itemuse.pp(cx),
+            | &Item::Verbatim(ref tokenstream) => tokenstream.pp(cx),
+            | _ => {
+                eprintln!("Unsupported variant: {:?}", self);
+                self.into_token_stream().to_string()
+            },
         }
     }
 }
 
 impl PrettyPrint for ItemExternCrate {
-    fn pp (self: &'_ Self) -> String
+    fn pp (self: &'_ Self, cx: &'_ Context)
+        -> String
     {
         let &Self {
             ref attrs,
@@ -273,13 +290,19 @@ impl PrettyPrint for ItemExternCrate {
             ref rename,
             semi_token: _,
         } = self;
-        let attrs = if attrs.is_empty() { "".into() } else {
-            attrs.iter().map(|attr| format!("{}\n", attr.pp())).join("")
+        let attrs = if attrs.is_empty() {
+            "".into()
+        } else {
+            attrs
+                .iter()
+                .map(|attr| format!("{}\n", attr.pp(cx)))
+                .join("")
         };
-        let vis = vis.pp();
-        f!("{attrs}{vis}extern crate {ident}{rename};",
+        let vis = vis.pp(cx);
+        let indent = cx.indent();
+        f!("{attrs}{indent}{vis}extern crate {ident}{rename};",
             rename = if let Some((_, ident)) = rename {
-                format!(" as {}", ident.pp())
+                format!(" as {}", ident.pp(cx))
             } else {
                 "".into()
             },
@@ -288,7 +311,8 @@ impl PrettyPrint for ItemExternCrate {
 }
 
 impl PrettyPrint for Visibility {
-    fn pp (self: &'_ Self) -> String
+    fn pp (self: &'_ Self, cx: &'_ Context)
+        -> String
     {
         match self {
             | &Visibility::Inherited => "".into(),
@@ -296,7 +320,7 @@ impl PrettyPrint for Visibility {
             | &Visibility::Public(_) => "pub".into(),
             | &Visibility::Restricted(ref restricted) => {
                 let in_ = restricted.in_token.map(|_| "in ").unwrap_or("");
-                let path = restricted.path.pp();
+                let path = restricted.path.pp(cx);
                 f!("pub({in_}{path})")
             },
         }
@@ -304,7 +328,8 @@ impl PrettyPrint for Visibility {
 }
 
 impl PrettyPrint for ItemUse {
-    fn pp (self: &'_ Self) -> String
+    fn pp (self: &'_ Self, cx: &'_ Context)
+        -> String
     {
         let &Self {
             ref attrs,
@@ -315,24 +340,28 @@ impl PrettyPrint for ItemUse {
             semi_token: _,
         } = self;
         let attrs = if attrs.is_empty() { "".into() } else {
-            attrs.iter().map(|attr| format!("{}\n", attr.pp())).join("")
+            attrs.iter().map(|attr| format!("{}\n", attr.pp(cx))).join("")
         };
-        let vis = vis.pp();
+        let mut vis = vis.pp(cx);
+        if vis.is_empty().not() { vis.push(' '); }
         let leading_colon = leading_colon.map(|_| "::").unwrap_or("");
-        let tree = tree.pp();
-        f!("{attrs}{vis}use {leading_colon}{tree};")
+        let tree = tree.pp(cx);
+        let indent = cx.indent();
+        f!("{indent}{attrs}{indent}{vis}use {leading_colon}{tree};")
     }
 }
 
 impl PrettyPrint for Ident {
-    fn pp (self: &'_ Self) -> String
+    fn pp (self: &'_ Self, cx: &'_ Context)
+        -> String
     {
         self.to_string()
     }
 }
 
 impl PrettyPrint for UseTree {
-    fn pp (self: &'_ Self) -> String
+    fn pp (self: &'_ Self, cx: &'_ Context)
+        -> String
     {
         match self {
             | &UseTree::Path(UsePath {
@@ -340,14 +369,14 @@ impl PrettyPrint for UseTree {
                 colon2_token: _,
                 ref tree,
             }) => {
-                let tree = (&**tree).pp();
+                let tree = (&**tree).pp(cx);
                 format_f!("{ident}::{tree}")
             },
-            | &UseTree::Name(ref use_name) => use_name.ident.pp(),
+            | &UseTree::Name(ref use_name) => use_name.ident.pp(cx),
             | &UseTree::Rename(ref use_rename) => {
                 format!("{ident} as {rename}",
-                    ident = use_rename.ident.pp(),
-                    rename = use_rename.rename.pp(),
+                    ident = use_rename.ident.pp(cx),
+                    rename = use_rename.rename.pp(cx),
                 )
             },
             | &UseTree::Glob(_) => "*".into(),
@@ -375,17 +404,22 @@ impl PrettyPrint for UseTree {
                 let elems = if group.items.is_empty() {
                     "".into()
                 } else {
-                    format!("\n{}",
+                    let indent = cx.indent();
+                    let ref cx = cx.deeper();
+                    format!("\n{indent}{}",
                         group
                             .items
                             .iter()
                             .filter(|&x| {
-                                Some(x) != mb_glob && Some(x) != mb_self
+                                let mb_x = Some(x);
+                                mb_x != mb_glob && mb_x != mb_self
                             })
-                            .map(|x| format!("    {},\n", x.pp()))
-                            .format("")
+                            .map(|x| f!("    {},\n{indent}", x.pp(cx)))
+                            .format(""),
+                        indent = indent,
                     )
                 };
+                let indent = cx.indent();
                 f!("{{{same_line}{elems}}}")
             },
         }
@@ -393,15 +427,15 @@ impl PrettyPrint for UseTree {
 }
 
 impl PrettyPrint for UsePath {
-    // fn pp (self: &'_ Self) -> String
+    // fn pp (self: &'_ Self, cx: &'_ Context) -> String
     // {
     //     match self {
-    //         | &UseTree::Path(ref path) => path.pp(),
-    //         | &UseTree::Name(ref use_name) => use_name.ident.pp(),
+    //         | &UseTree::Path(ref path) => path.pp(cx),
+    //         | &UseTree::Name(ref use_name) => use_name.ident.pp(cx),
     //         | &UseTree::Rename(ref use_rename) => {
     //             format!("{ident} as {rename}",
-    //                 ident = use_rename.ident.pp(),
-    //                 rename = use_rename.rename.pp(),
+    //                 ident = use_rename.ident.pp(cx),
+    //                 rename = use_rename.rename.pp(cx),
     //             )
     //         },
     //         | &UseTree::Glob(_) => "*".into(),
@@ -410,7 +444,7 @@ impl PrettyPrint for UsePath {
     //                 group
     //                     .items
     //                     .iter()
-    //                     .map(PrettyPrint::pp)
+    //                     .map(|x| x.pp(cx))
     //                     .format(",\n    ")
     //             })
     //         },
