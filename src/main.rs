@@ -27,6 +27,8 @@ use ::syn::{*,
 
 use ::std::{};
 
+mod comments;
+
 pub use self::context::Context;
 mod context;
 
@@ -67,6 +69,7 @@ fn main ()
         ;
         let ref cx = Context::new();
         println_f!("{source_file:?}\n\n{}", source_file.pp(cx));
+        dbg!(comments::find_comments(&contents));
     })}
 
     if let Err(msg) = main() {
@@ -243,7 +246,9 @@ impl PrettyPrint for Lit {
     fn pp (self: &'_ Self, cx: &'_ Context)
         -> String
     {
-        self.clone().into_token_stream().to_string()
+        self.clone()
+            .into_token_stream()
+            .to_string()
     }
 }
 
@@ -424,30 +429,4 @@ impl PrettyPrint for UseTree {
             },
         }
     }
-}
-
-impl PrettyPrint for UsePath {
-    // fn pp (self: &'_ Self, cx: &'_ Context) -> String
-    // {
-    //     match self {
-    //         | &UseTree::Path(ref path) => path.pp(cx),
-    //         | &UseTree::Name(ref use_name) => use_name.ident.pp(cx),
-    //         | &UseTree::Rename(ref use_rename) => {
-    //             format!("{ident} as {rename}",
-    //                 ident = use_rename.ident.pp(cx),
-    //                 rename = use_rename.rename.pp(cx),
-    //             )
-    //         },
-    //         | &UseTree::Glob(_) => "*".into(),
-    //         | &UseTree::Group(ref group) => {
-    //             format!("{{\n    {elems}\n}}", elems = {
-    //                 group
-    //                     .items
-    //                     .iter()
-    //                     .map(|x| x.pp(cx))
-    //                     .format(",\n    ")
-    //             })
-    //         },
-    //     }
-    // }
 }

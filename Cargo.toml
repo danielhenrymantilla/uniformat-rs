@@ -9,7 +9,7 @@ edition = "2018"
 [dependencies]
 fstrings = "0.1.4"
 itertools = "0.8.0"
-proc-macro2 = "1.0.0"
-quote = "1.0.0"
-syn = { version = "1.0.1", features = ["full", "extra-traits"] }
+proc-macro2 = { version = "1.0.1", features = ["span-locations"] }
+quote = "1.0.2"
+syn = { version = "1.0.3", features = ["full", "extra-traits"] }
 
